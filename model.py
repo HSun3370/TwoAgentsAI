@@ -79,7 +79,7 @@ class model:
         self.params  = params 
         
         ## Table 1: Economic Parameters
-        self.params["δ"] = 0.02 # subjective discount rate
+        self.params["δ"] = 0.01 # subjective discount rate
         self.params["ρ"] = 1.0 # Intertemporal Elasticity of Substitution
         
         self.params["α"] =  0.5 # AI sector production function

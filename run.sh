@@ -4,14 +4,14 @@
  
 
 
-prefix="/project/lhansen/Capital_NN_variant/TwoAgentsAI"
+prefix="/project/lhansen/Capital_NN_variant/TwoAgentsDataFeedback/output"
 
 batch_size="128"
 num_iterations="200000" 
 # num_iterations="1000000" 
 num_iterations="100000" 
-num_iterations="30000" 
-logging_frequency="100"
+num_iterations="300000" 
+logging_frequency="1000"
 # learning_rates="40e-5,40e-5,40e-5,40e-5"  # Larger learning rate is much efficient
 # learning_rates="40e-3,40e-3,40e-3,40e-3" 
 # learning_rates="10e-3,10e-3,10e-3,10e-3"
