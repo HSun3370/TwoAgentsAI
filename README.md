@@ -1,6 +1,5 @@
-<<<<<<< HEAD
 # Two Agents AI model with data feedback loop
-This is the source code for the paper "Is AI Old Wine in New Bottles? An Asset Pricing model on AI and Data Economy"
+This is the source code for the paper "Is AI Old Wine in New Bottles? An Asset Pricing model on AI and Data Economy".
 Paper can be found at https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5121167.
 
 

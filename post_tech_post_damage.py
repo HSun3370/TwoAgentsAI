@@ -66,29 +66,25 @@ i_a_nn_config["final_activation"] = output_layer_activations[2]
 i_d_nn_config = {"num_hiddens" : [num_neurons for _ in range(num_hidden_layers)], "use_bias" : True, "activation" : hidden_layer_activations[3], "dim" : 1, "nn_name" : "i_d_nn"}
 i_d_nn_config["final_activation"] = output_layer_activations[3]
 
+## Network for Labor Allocation 
+## 3 outputs (L_g,L_a, N) in order
+L_nn_config   = {"num_hiddens": [num_neurons for _ in range(num_hidden_layers)], "use_bias": True, "activation": "relu", "dim": 3,  "nn_name": "Labor_nn", "final_activation": "softmax" }
 
 
 
+## Prices network
 v_g_nn_config   = {"num_hiddens" : [num_neurons for _ in range(num_hidden_layers)], "use_bias" : True, "activation" : hidden_layer_activations[0], "dim" : 1, "nn_name" : "v_g_nn"}
 v_g_nn_config["final_activation"] = output_layer_activations[0]
-
 
 v_a_nn_config   = {"num_hiddens" : [num_neurons for _ in range(num_hidden_layers)], "use_bias" : True, "activation" : hidden_layer_activations[0], "dim" : 1, "nn_name" : "v_a_nn"}
 v_a_nn_config["final_activation"] = output_layer_activations[0]
 
 
 
-v_g_nn_config   = {"num_hiddens" : [num_neurons for _ in range(num_hidden_layers)], "use_bias" : True, "activation" : hidden_layer_activations[1], "dim" : 1, "nn_name" : "v_g_nn"}
-v_g_nn_config["final_activation"] = output_layer_activations[0]
-
-
-v_a_nn_config   = {"num_hiddens" : [num_neurons for _ in range(num_hidden_layers)], "use_bias" : True, "activation" : hidden_layer_activations[1], "dim" : 1, "nn_name" : "v_a_nn"}
-v_a_nn_config["final_activation"] = output_layer_activations[0]
-
-
 ## Create params struct 
 params = {"batch_size" : batch_size,  
-"v_nn_config" : v_nn_config, "v_g_nn_config" : v_g_nn_config, "v_a_nn_config" : v_a_nn_config, "i_g_nn_config" : i_g_nn_config,"i_a_nn_config" : i_a_nn_config,  "i_d_nn_config" : i_d_nn_config, \
+"v_nn_config" : v_nn_config, "v_g_nn_config" : v_g_nn_config, "v_a_nn_config" : v_a_nn_config, 
+"i_g_nn_config" : i_g_nn_config,"i_a_nn_config" : i_a_nn_config,  "i_d_nn_config" : i_d_nn_config,  "L_nn_config" : L_nn_config ,
 "num_iterations" : num_iterations, "logging_frequency": logging_frequency, "verbose": True, "load_parameters" : None, "norm_weight" : 0.9,
 "pretrained_path" : pretrained_path, 'tensorboard' : tensorboard, "learning_rate_schedule_type" : learning_rate_schedule_type }
 

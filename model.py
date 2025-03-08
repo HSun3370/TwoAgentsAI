@@ -4,8 +4,6 @@
 ######################################################################
 ######################################################################
 
-
-
 import numpy as np
 import tensorflow as tf
 import time
@@ -18,7 +16,7 @@ import os
 import pandas as pd
 from IntraTemporalSolver import *
 
-tf.random.set_seed(20001031)
+tf.random.set_seed(1031)
 
 
 class FeedForwardSubNet(tf.keras.Model):
@@ -73,6 +71,7 @@ class FeedForwardSubNet(tf.keras.Model):
         return x
     
 class model:
+    
     def __init__(self, params):
         
         ## Load parameters
@@ -90,46 +89,42 @@ class model:
         self.params["ψ"] = 1
         
         
-        ## Underlying dynamics
-        self.params["μ_Z"] =  0.04; self.params["σ_Z"] = 0.035
+        ## Underlying capitals and data dynamics
         self.params["μ_a"] =  0.05 ; self.params["κ_a"] =  6;   self.params["σ_a"] = 0.01
         self.params["μ_g"] =  0.035 ; self.params["κ_g"] = 7;   self.params["σ_g"] = 0.01 
-        self.params["ζ"] = 0.0; self.params["ψ_0"] = 0.10  ;self.params["ψ_1"] = 0.5; self.params["σ_κ"] = 0.0078
+        self.params["ζ"] = 0.0; self.params["ψ_0"] = 0.10  ;self.params["ψ_1"] = 0.5; self.params["σ_D"] = 0.0078
          
-        self.params["A_g"] =  0.12 
-        
+        ## Sector Productivities
+        self.params["A"] =  0.1
+        self.params["Z"] = 1
            
         ## Table 3: State Variable Initial Values and Ranges
         self.params["K_g_0"] = 10.0
-        self.params["K_a_0"] = 5.0
-        self.params["Z_0"] = 5
-        self.params["D_0"] = 5 
+        self.params["K_a_0"] = 2.0
+        self.params["D_0"] = 2.0
         
+        ## Range of state variables in sampling
         self.params["logK_g_min"] = 0.01
         self.params["logK_g_max"] = 4.0
         self.params["logK_a_min"] = 0.01
-        self.params["logK_a_max"] = 2.0
-        self.params["logZ_min"] = 0.01
-        self.params["logZ_max"] = 2.0
+        self.params["logK_a_max"] = 4.0
         self.params["logD_min"] = 0.01
-        self.params["logD_max"] = 2.0 
+        self.params["logD_max"] = 4.0 
         
         
-        if 'tensorboard' not in params.keys():
-            print("Tensorboard option not detected; setting to False by default.")
-            self.params['tensorboard'] = False 
-        print("Tensorboard boolean =", self.params['tensorboard'] )
 
 
         ## Create neural networks
-        self.v_nn    = FeedForwardSubNet(self.params['v_nn_config'])
-        self.i_g_nn  = FeedForwardSubNet(self.params['i_g_nn_config'])
-        self.i_a_nn  = FeedForwardSubNet(self.params['i_a_nn_config'])
-        self.i_d_nn  = FeedForwardSubNet(self.params['i_d_nn_config'])
+        self.v_nn    = FeedForwardSubNet(self.params['v_nn_config'])   # value function of social planner
+        self.i_g_nn  = FeedForwardSubNet(self.params['i_g_nn_config']) # I_g/K_g
+        self.i_a_nn  = FeedForwardSubNet(self.params['i_a_nn_config']) # I_a/K_a
+        self.i_d_nn  = FeedForwardSubNet(self.params['i_d_nn_config']) # I_d/K_g
+        self.L_nn  = FeedForwardSubNet(self.params['L_nn_config'])     # (L_g,L_a, N) in order
         
         ## firm prices
-        self.v_g_nn    = FeedForwardSubNet(self.params['v_g_nn_config'])
-        self.v_a_nn    = FeedForwardSubNet(self.params['v_a_nn_config'])
+        self.s_g_nn    = FeedForwardSubNet(self.params['s_g_nn_config'])  # value of general goods sector
+        self.s_a_nn    = FeedForwardSubNet(self.params['s_a_nn_config'])  # value of AI sector
+        
         ## Create folder 
         pathlib.Path(self.params["export_folder"]).mkdir(parents=True, exist_ok=True) 
 
@@ -142,9 +137,6 @@ class model:
         self.params["state_intervals"]["logK_a"]     =  tf.reshape(tf.linspace(self.params['logK_a_min'], self.params['logK_a_max'], self.params['batch_size'] + 1), (self.params['batch_size'] + 1,1))
         self.params["state_intervals"]["logK_a_interval_size"] =  self.params["state_intervals"]["logK_a"][1] -  self.params["state_intervals"]["logK_a"][0]
 
-        self.params["state_intervals"]["logZ"]        =  tf.reshape(tf.linspace(self.params['logZ_min'], self.params['logZ_max'], self.params['batch_size'] + 1), (self.params['batch_size'] + 1,1))
-        self.params["state_intervals"]["logZ_interval_size"] =  self.params["state_intervals"]["logZ"][1] -  self.params["state_intervals"]["logZ"][0]
- 
         self.params["state_intervals"]["logD"]        =  tf.reshape(tf.linspace(self.params['logD_min'], self.params['logD_max'], self.params['batch_size'] + 1), (self.params['batch_size'] + 1,1))
         self.params["state_intervals"]["logD_interval_size"] =  self.params["state_intervals"]["logD"][1] -  self.params["state_intervals"]["logD"][0]
 
@@ -168,24 +160,17 @@ class model:
         offsets      = tf.random.uniform(shape=(self.params['batch_size'],1), minval=0.0, maxval=1.0)
         logK_a         = tf.random.shuffle(self.params["state_intervals"]["logK_a"][:-1] + self.params["state_intervals"]["logK_a_interval_size"] * offsets)
         
-        
-        offsets      = tf.random.uniform(shape=(self.params['batch_size'],1), minval=0.0, maxval=1.0)
-        logZ            = tf.random.shuffle(self.params["state_intervals"]["logZ"][:-1] + self.params["state_intervals"]["logZ_interval_size"] * offsets)
-
- 
-        
         offsets            = tf.random.uniform(shape=(self.params['batch_size'],1), minval=0.0, maxval=1.0)
         logD            = tf.random.shuffle(self.params["state_intervals"]["logD"][:-1] + self.params["state_intervals"]["logD_interval_size"] * offsets)
         
-        L_g, L_a, w, p = solve_IntraTemporal_batch_tf(logK_g, logK_a, logZ, logD, self.params)
-        
-        return logK_g, logK_a, logZ,logD,L_g, L_a, w, p
+ 
+        return logK_g, logK_a, logD 
     
     
  
 
     @tf.function
-    def pde_rhs(self, logK_g, logK_a, logZ,logD,L_g, L_a, w, p):
+    def pde_rhs(self, logK_g, logK_a, logD):
         '''
         This is the RHS of the HJB equation
         '''
@@ -199,8 +184,7 @@ class model:
         β = self.params["β"]
         ψ = self.params["ψ"]  
 
-        μ_Z = self.params["μ_Z"]
-        σ_Z = self.params["σ_Z"]
+
 
         μ_a = self.params["μ_a"]
         κ_a = self.params["κ_a"]
@@ -209,17 +193,18 @@ class model:
         μ_g = self.params["μ_g"]
         κ_g = self.params["κ_g"]
         σ_g = self.params["σ_g"]
+        
         ζ = self.params["ζ"]
         ψ_0 = self.params["ψ_0"]
         ψ_1 = self.params["ψ_1"]
-        σ_κ = self.params["σ_κ"]
-
-        A_g = self.params["A_g"]
+        σ_D = self.params["σ_D"]
 
 
-        
+        A = self.params["A"]
+        Z = self.params["Z"] 
+ 
          
-        state = tf.concat([logK_g, logK_a , logZ,logD], 1) 
+        state = tf.concat([logK_g, logK_a , logD], 1) 
             
  
         
@@ -229,16 +214,20 @@ class model:
         i_a          = self.i_a_nn(state)
         i_d          = self.i_d_nn(state)
         
-        
-        S_g            = self.v_g_nn(state)
-        S_a            = self.v_a_nn(state)
+        L = self.L_nn(state)  # shape: (batch_size, 3)
+        L_a =tf.reshape( L[:, 0:1], [self.params['batch_size'], 1]) 
+        L_g = tf.reshape( L[:, 1:2], [self.params['batch_size'], 1])
+        N  = tf.reshape( L[:, 2:3], [self.params['batch_size'], 1]) 
          
+        
+        S_g            = self.s_g_nn(state)
+        S_a            = self.s_a_nn(state)
+        
 
         ## Calculate some variables for proceeding calculation. 
 
         K_a = tf.reshape(tf.exp(logK_a), [self.params['batch_size'], 1])
         K_g = tf.reshape(tf.exp(logK_g), [self.params['batch_size'], 1])
-        Z = tf.reshape(tf.exp(logZ), [self.params['batch_size'], 1])
         D = tf.reshape(tf.exp(logD), [self.params['batch_size'], 1])
 
         #########################
@@ -267,17 +256,6 @@ class model:
         dS_a_ddlogK_g                = tf.reshape(tf.gradients(dS_a_dlogK_g, logK_g, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])    
         
         
-        ## FOC w.r.t logZ
-        dv_dlogZ                    = tf.reshape(tf.gradients(v, logZ, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
-        dv_ddlogZ                   = tf.reshape(tf.gradients(dv_dlogZ, logZ, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
-
-        dS_g_dlogZ                    = tf.reshape(tf.gradients(S_g, logZ, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
-        dS_g_ddlogZ                   = tf.reshape(tf.gradients(dS_g_dlogZ, logZ, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
-
-        dS_a_dlogZ                    = tf.reshape(tf.gradients(S_a, logZ, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
-        dS_a_ddlogZ                   = tf.reshape(tf.gradients(dS_a_dlogZ, logZ, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
-
-
         ## FOC w.r.t logD
         dv_dlogD                 = tf.reshape(tf.gradients(v, logD, unconnected_gradients='zero')[0], [self.params["batch_size"], 1])
         dv_ddlogD                 = tf.reshape(tf.gradients(dv_dlogD, logD, unconnected_gradients='zero')[0], [self.params["batch_size"], 1])
@@ -293,24 +271,28 @@ class model:
         #########################################################
         ######## RHS without Jump terms #########################
         #########################################################
- 
-        N = 1 - L_a - L_g
+  
         X = Z * ( K_a**α ) * ( L_a**(1-α) )
         
         L_AI =  (D**θ) * (X**(1-θ))
         
-        y = A_g * (K_g**β) * (ι* L_g**γ + (1-ι) *L_AI**γ)**((1-β)/γ)
+        L_composite = (ι* L_g**γ + (1-ι) *L_AI**γ)**(1/γ)
+        
+        
+        y = A * (K_g**β) * L_composite**(1-β)
+
+        p = (1-β) * (1-ι) * (1-θ) * y * (L_AI/ L_composite )**γ / X
+        w=  (1-β) *  ι  *  y * (L_g/ L_composite )**γ  / L_g
 
         C = y - i_g*K_g - i_a * K_a - i_d * K_g
         
  
-        inside_log   =   tf.reshape( tf.math.maximum( C , 0.000000001), [self.params["batch_size"], 1])
+        inside_log   =   tf.reshape( tf.math.maximum( C , 0.0000001), [self.params["batch_size"], 1])
         
         ## Risk free rate
-        rf = δ + 0.5 * (y/inside_log) * β**2 *  σ_g**2 + 0.5 * (y/inside_log) * (1-β) * (1-ι) *( L_AI / (ι* L_g**γ + (1-ι) *L_AI**γ)**(1/γ)   )**γ *(
-         ι*(  L_g / (ι* L_g**γ + (1-ι) *L_AI**γ)**(1/γ)   )**γ + (1-β) * (1-ι) )*(
-            ρ**2 * σ_κ**2 + α**2 * γ**2 * (1-ρ)**2 * σ_a**2 + γ**2 * (1-ρ)**2 * σ_Z**2
-        )
+        rf = δ + 0.5 * (y/inside_log) * β**2 *  σ_g**2 + 0.5 * (y/inside_log) * (1-β) * (1-ι) *( L_AI / L_composite )**γ *(
+         ι*(  L_g / L_composite  )**γ + (1-β) * (1-ι) )*(
+            ρ**2 * σ_D**2 + α**2 * γ**2 * (1-ρ)**2 * σ_a**2  )
          
         sdf = δ /(inside_log* N**ψ )
         ## Profit of two sectors
@@ -319,12 +301,13 @@ class model:
         
         ## Risk Price
         λ_g = β * (y/inside_log) * σ_g 
-        λ_a = α* γ * (1-ρ)*(1-ι)*(1-β) * (y/inside_log) *( L_AI / (ι* L_g**γ + (1-ι) *L_AI**γ)**(1/γ)   )**γ * σ_a
-        λ_D = ρ*(1-ι)*(1-β) * (y/inside_log) * ( L_AI / (ι* L_g**γ + (1-ι) *L_AI**γ)**(1/γ)   )**γ * σ_κ
-        λ_Z = (1-ρ)*(1-ι)*(1-β) * (y/inside_log) * ( L_AI / (ι* L_g**γ + (1-ι) *L_AI**γ)**(1/γ)   )**γ * σ_Z
+        λ_a = α* γ * (1-ρ)*(1-ι)*(1-β) * (y/inside_log) *( L_AI / L_composite   )**γ * σ_a
+        λ_D = ρ*(1-ι)*(1-β) * (y/inside_log) * ( L_AI / L_composite )**γ * σ_D
         
-        # flow           = δ /(1-ρ) *  (  ( inside_log * N**ψ /tf.exp(v) )**(1-ρ)   -1  )
+        # recursive utility
+        # flow   = δ /(1-ρ) *  (  ( inside_log * N**ψ /tf.exp(v) )**(1-ρ)   -1  )
         
+        # log utility
         flow = δ* tf.math.log(  inside_log ) + ψ * tf.math.log( N )
         
         v_k_g_term       =  - μ_g + i_g - κ_g/2 * (i_g)**2 - σ_g**2/2
@@ -333,47 +316,40 @@ class model:
         v_k_a_term       =  - μ_a + i_a - κ_a/2 * (i_a)**2 - σ_a**2/2
         v_kk_a_term      =    0.5 * tf.pow(σ_a, 2)
         
-        
-
-        v_logZ_term     =   -  μ_Z    - 0.5 * tf.pow(σ_Z, 2)
-        v_logZlogZ_term =     0.5 * tf.pow(σ_Z, 2)
-        
             
-        v_logD_term     = -  ζ  +  ψ_0  * (K_g/D * i_d)**ψ_1 - 0.5 * tf.pow(σ_κ, 2)
-        v_logDlogD_term = 0.5 * tf.pow(σ_κ, 2)
+        v_logD_term     = -  ζ  +  ψ_0  * (K_g/D * i_d * y/D)**ψ_1 - 0.5 * tf.pow(σ_D, 2)
+        v_logDlogD_term =     0.5 * tf.pow(σ_D, 2)
         
 
         rhs = flow  -  δ *  v \
                 + v_k_g_term * dv_dlogK_g + v_kk_g_term * dv_ddlogK_g  \
                 +v_k_a_term * dv_dlogK_a + v_kk_a_term * dv_ddlogK_a \
-                +v_logZ_term * dv_dlogZ+ v_logZlogZ_term * dv_ddlogZ \
                 + v_logD_term*dv_dlogD + v_logDlogD_term*dv_ddlogD
  
   
 
-        rhs_S_g = sdf* Π_g  -rf  - λ_a* σ_a * dS_g_dlogK_a - λ_g* σ_g * dS_g_dlogK_g   -λ_D*σ_κ* dS_g_dlogD  -λ_Z*σ_Z*dS_g_ddlogZ \
+        rhs_S_g =  Π_g  -rf * S_g - λ_a* σ_a * dS_g_dlogK_a - λ_g* σ_g * dS_g_dlogK_g   -λ_D*σ_D* dS_g_dlogD   \
                 + v_k_g_term * dS_g_dlogK_g + v_kk_g_term * dS_g_ddlogK_g  \
                 +v_k_a_term * dS_g_dlogK_a + v_kk_a_term * dS_g_ddlogK_a \
-                +v_logZ_term * dS_g_dlogZ+ v_logZlogZ_term * dS_g_ddlogZ \
                 + v_logD_term*dS_g_dlogD + v_logDlogD_term*dS_g_ddlogD
         
    
-        rhs_S_a = Π_a -rf  - λ_a* σ_a * dS_a_dlogK_a - λ_g* σ_g * dS_a_dlogK_g   -λ_D*σ_κ* dS_a_dlogD  -λ_Z*σ_Z*dS_a_ddlogZ \
+        rhs_S_a =  Π_a -rf *S_a  - λ_a* σ_a * dS_a_dlogK_a - λ_g* σ_g * dS_a_dlogK_g   -λ_D*σ_D* dS_a_dlogD   \
                 + v_k_g_term * dS_a_dlogK_g + v_kk_g_term * dS_a_ddlogK_g  \
                 +v_k_a_term * dS_a_dlogK_a + v_kk_a_term * dS_a_ddlogK_a \
-                +v_logZ_term * dS_a_dlogZ+ v_logZlogZ_term * dS_a_ddlogZ \
                 + v_logD_term*dS_a_dlogD + v_logDlogD_term*dS_a_ddlogD
         ###################################################
-        ######### FOCs w.r.t controls lar
+        ######### FOCs w.r.t controls  
         ###################################################
-    
-        
 
         FOC_g   = - dv_dlogK_g*(1-κ_g * i_g)  + δ * K_g / inside_log
         FOC_a   = - dv_dlogK_a*(1-κ_a * i_a)  + δ * K_a / inside_log
         FOC_D   = - dv_dlogD*ψ_0  *  ψ_1* i_d**(ψ_1-1) * (K_g/D )**ψ_1 +  δ * K_g / inside_log
+         
+        FOC_AI_Production = (1-α)*p*X/L_a -w
+        FOC_labor = N - ψ * inside_log/w
         
-        return  rhs,FOC_g,FOC_a,FOC_D ,  C, rhs_S_g, rhs_S_a
+        return  rhs,FOC_g,FOC_a,FOC_D ,FOC_AI_Production,FOC_labor,  C, rhs_S_g, rhs_S_a
 
     @tf.function
     def objective_fn(self, logK_g, logK_a , logZ,logD,L_g, L_a, w, p,  compute_control, training):
@@ -435,7 +411,7 @@ class model:
             with tf.GradientTape(persistent=True) as tape:
                 objective  = self.objective_fn(logK_g, logK_a , logZ,logD,L_g, L_a, w, p,  compute_control, training)
 
-            trainable_variables = self.i_g_nn.trainable_variables + self.i_d_nn.trainable_variables + self.i_a_nn.trainable_variables  + self.v_g_nn.trainable_variables+self.v_a_nn.trainable_variables
+            trainable_variables = self.i_g_nn.trainable_variables + self.i_d_nn.trainable_variables + self.i_a_nn.trainable_variables  + self.s_g_nn.trainable_variables+self.s_a_nn.trainable_variables
 
             grad = tape.gradient(objective, trainable_variables)
 
@@ -463,7 +439,7 @@ class model:
         ## Second, train controls
         grad, loss_c_train  = self.grad(logK_g, logK_a , logZ,logD,L_g, L_a, w, p,  True,  True)
 
-        self.params["optimizers"][1].apply_gradients(zip(grad, self.i_g_nn.trainable_variables + self.i_d_nn.trainable_variables + self.i_a_nn.trainable_variables + self.v_g_nn.trainable_variables+self.v_a_nn.trainable_variables))
+        self.params["optimizers"][1].apply_gradients(zip(grad, self.i_g_nn.trainable_variables + self.i_d_nn.trainable_variables + self.i_a_nn.trainable_variables + self.s_g_nn.trainable_variables+self.s_a_nn.trainable_variables))
 
         return loss_v_train, loss_c_train 
     
@@ -494,13 +470,13 @@ class model:
         best_i_d_nn.build( (self.params["batch_size"], n_inputs) ) 
         self.i_d_nn.build( (self.params["batch_size"], n_inputs) )
         
-        best_v_g_nn    = FeedForwardSubNet(self.params['v_g_nn_config'])
-        best_v_g_nn.build( (self.params["batch_size"], n_inputs) ) 
-        self.v_g_nn.build( (self.params["batch_size"], n_inputs) )
+        best_s_g_nn    = FeedForwardSubNet(self.params['s_g_nn_config'])
+        best_s_g_nn.build( (self.params["batch_size"], n_inputs) ) 
+        self.s_g_nn.build( (self.params["batch_size"], n_inputs) )
 
-        best_v_a_nn    = FeedForwardSubNet(self.params['v_a_nn_config'])
-        best_v_a_nn.build( (self.params["batch_size"], n_inputs) ) 
-        self.v_a_nn.build( (self.params["batch_size"], n_inputs) )
+        best_s_a_nn    = FeedForwardSubNet(self.params['s_a_nn_config'])
+        best_s_a_nn.build( (self.params["batch_size"], n_inputs) ) 
+        self.s_a_nn.build( (self.params["batch_size"], n_inputs) )
 
 
         best_v_nn.set_weights(self.v_nn.get_weights())
@@ -508,8 +484,8 @@ class model:
         best_i_a_nn.set_weights(self.i_a_nn.get_weights())
         best_i_d_nn.set_weights(self.i_d_nn.get_weights())
 
-        best_v_g_nn.set_weights(self.v_g_nn.get_weights())
-        best_v_a_nn.set_weights(self.v_a_nn.get_weights())
+        best_s_g_nn.set_weights(self.s_g_nn.get_weights())
+        best_s_a_nn.set_weights(self.s_a_nn.get_weights())
 
         ## Load pretrained weights
         if self.params['pretrained_path'] is not None:
@@ -537,8 +513,8 @@ class model:
                     best_i_g_nn.set_weights(self.i_g_nn.get_weights())
                     best_i_a_nn.set_weights(self.i_a_nn.get_weights())
                     best_i_d_nn.set_weights(self.i_d_nn.get_weights())
-                    best_v_a_nn.set_weights(self.v_a_nn.get_weights())
-                    best_v_g_nn.set_weights(self.v_g_nn.get_weights())
+                    best_s_a_nn.set_weights(self.s_a_nn.get_weights())
+                    best_s_g_nn.set_weights(self.s_g_nn.get_weights())
 
                 ## Generate checkpoints for tensorboard
                 
@@ -629,8 +605,8 @@ class model:
         self.i_g_nn.set_weights(best_i_g_nn.get_weights())
         self.i_a_nn.set_weights(best_i_a_nn.get_weights())
         self.i_d_nn.set_weights(best_i_d_nn.get_weights())
-        self.v_a_nn.set_weights(best_v_a_nn.get_weights())
-        self.v_g_nn.set_weights(best_v_g_nn.get_weights())
+        self.s_a_nn.set_weights(best_s_a_nn.get_weights())
+        self.s_g_nn.set_weights(best_s_g_nn.get_weights())
 
 
         ## Export last check point
@@ -638,8 +614,8 @@ class model:
         self.i_g_nn.save_weights( self.params["export_folder"] + '/i_g_nn_checkpoint')
         self.i_a_nn.save_weights( self.params["export_folder"] + '/i_a_nn_checkpoint')
         self.i_d_nn.save_weights( self.params["export_folder"] + '/i_d_nn_checkpoint' )
-        self.v_a_nn.save_weights( self.params["export_folder"] + '/v_a_nn_checkpoint')
-        self.v_g_nn.save_weights( self.params["export_folder"] + '/v_g_nn_checkpoint' )
+        self.s_a_nn.save_weights( self.params["export_folder"] + '/s_a_nn_checkpoint')
+        self.s_g_nn.save_weights( self.params["export_folder"] + '/s_g_nn_checkpoint' )
 
  
         ## Save training history
