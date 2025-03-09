@@ -1,0 +1,2 @@
+step,loss_value_function,loss_FOC_g,loss_FOC_a,loss_FOC_d,loss_FOC_AI_Production,loss_FOC_labor,elapsed_time
+0,1.08079e+00,1.92756e+06,1.93634e+06,1.92756e+06,1.82080e-01,4.20154e-01,40

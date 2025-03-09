@@ -142,8 +142,8 @@ class model:
 
         ## Add economic scalers for better training
         consumption_guess =   np.exp(self.params["logK_a_max"]+self.params["logK_g_max"])  / 2 * 0.1
-        self.flow_pv_norm                          =  tf.ones(shape = (self.params['batch_size'],1) )  * self.params['δ'] * np.log(consumption_guess)
-        self.marginal_utility_of_consumption_norm  =  tf.ones(shape = (self.params['batch_size'],1) )  * self.params['δ'] / consumption_guess
+        self.flow_pv_norm                          =  tf.ones(shape = (self.params['batch_size'],1) ) # * self.params['δ'] * np.log(consumption_guess)
+        self.marginal_utility_of_consumption_norm  =  tf.ones(shape = (self.params['batch_size'],1) )  #* self.params['δ'] / consumption_guess
 
 
         ## Create objects to generate checkpoints for tensorboard
@@ -324,7 +324,7 @@ class model:
         FOC_AI_Production = (1-α)*p*X/L_a -w
         FOC_labor = N - ψ * inside_log/w
         
-        return  rhs,FOC_g,FOC_a,FOC_D ,FOC_AI_Production,FOC_labor,  C
+        return  rhs,FOC_g,FOC_a,FOC_D ,FOC_AI_Production,FOC_labor,  C , δ *  v, sdf
 
 
 
@@ -492,12 +492,11 @@ class model:
  
     @tf.function
     def objective_fn(self, logK_g, logK_a ,  logD,  compute_control, training):
- 
-        ## This is the objective function that stochastic gradient descend will try to minimize
-        ## It depends on which NN it is training. Controls and value functions have different
-        ## objectives.
-
-        rhs,FOC_g,FOC_a,FOC_D ,FOC_AI_Production,FOC_labor,  C    = self.pde_rhs(logK_g, logK_a ,  logD )
+        """
+        objective function for HJB equation.
+        
+        """
+        rhs,FOC_g,FOC_a,FOC_D ,FOC_AI_Production,FOC_labor,  C ,pv, marginal_utility_of_consumption_norm  = self.pde_rhs(logK_g, logK_a ,  logD )
 
         epsilon = 10e-8
         negative_consumption_boolean = tf.reshape( tf.cast( C < 0.000000001, tf.float32 ),  [self.params["batch_size"], 1])
@@ -544,7 +543,9 @@ class model:
 
     @tf.function
     def objective_fn_prices(self, logK_g, logK_a ,  logD,   training):
-        ## The Losses of sector valuation PDE
+        """
+        Objective function for sector prices
+        """
         rhs_S_g, rhs_S_a    = self.pde_Prices(logK_g, logK_a ,  logD )
         if training:    
             ## Take care of nonsensical controls first
@@ -583,7 +584,7 @@ class model:
         with tf.GradientTape(persistent=True) as tape:
             objective  = self.objective_fn_prices(logK_g, logK_a ,  logD,  training)
 
-        trainable_variables = self.s_g_nn.trainable_variables + self.s_d_nn.trainable_variables 
+        trainable_variables = self.s_g_nn.trainable_variables + self.s_a_nn.trainable_variables 
         grad = tape.gradient(objective, trainable_variables)
 
         del tape
@@ -621,6 +622,9 @@ class model:
     
     
     def train(self):
+        '''
+        Solve HJB first. Then solve sector prices.
+        '''
 
         start_time = time.time()
         training_history = []
@@ -630,6 +634,7 @@ class model:
         
         n_inputs = 3
 
+        ## Initialize the best network for storing parameters
         best_v_nn    = FeedForwardSubNet(self.params['v_nn_config'])
         best_v_nn.build( (self.params["batch_size"], n_inputs) ) 
         self.v_nn.build( (self.params["batch_size"], n_inputs) )
@@ -677,13 +682,18 @@ class model:
 
 
 
-        # begin sgd iteration
+        # begin sgd iteration for HJB equation
         for step in range(self.params["num_iterations"]):
             if step % self.params["logging_frequency"] == 0:
                 ## Sample test data
                 logK_g, logK_a , logD= self.sample()
                 ## Compute test loss
                 test_losses = self.objective_fn(logK_g, logK_a , logD, False, False)  #compute_control, training 
+                
+                rhs,FOC_g,FOC_a,FOC_D ,FOC_AI_Production,FOC_labor,  C , pv,marginal_utility_of_consumption_norm = self.pde_rhs(  logK_g, logK_a, logD)
+                
+                # self.flow_pv_norm = (1.0 - self.params['norm_weight']) * self.flow_pv_norm + self.params['norm_weight'] * pv
+                # self.marginal_utility_of_consumption_norm = (1.0 - self.params['norm_weight']) * self.marginal_utility_of_consumption_norm + self.params['norm_weight'] * marginal_utility_of_consumption_norm
 
                 ## Store best neural networks
                 if (test_losses[0] < min_loss):
@@ -718,42 +728,11 @@ class model:
                         tf.summary.scalar('loss_FOC_g', test_losses[1], step=step)
                         tf.summary.scalar('loss_FOC_a', test_losses[2], step=step)
                         tf.summary.scalar('loss_FOC_d', test_losses[3], step=step)
-                        tf.summary.scalar('loss_FOC_S_g', test_losses[4], step=step)
-                        tf.summary.scalar('loss_FOC_S_a', test_losses[5], step=step)
-                     
-                            
-                            
-                        ## Export weights and gradients
-                        
-                        #### v_nn
-                        for layer in self.v_nn.layers:
-                            for W in layer.weights:
-                                tf.summary.histogram(W.name + '_weights', W, step=step)
-                        for g in range(len(self.v_nn.trainable_variables)):
-                            tf.summary.histogram(self.v_nn.trainable_variables[g].name + '_grads', grad_v_nn[g], step=step)
+                        tf.summary.scalar('loss_FOC_AI_Production', test_losses[4], step=step)
+                        tf.summary.scalar('loss_FOC_labor', test_losses[5], step=step)
 
-                        #### i_g
-                        for layer in self.i_g_nn.layers:
-                            for W in layer.weights:
-                                tf.summary.histogram(W.name + '_weights', W, step=step)
-                        for g in range(len(self.i_g_nn.trainable_variables)):
-                            tf.summary.histogram(self.i_g_nn.trainable_variables[g].name + '_grads', grad_controls[g], step=step)
-
-                        #### i_d
-                        for layer in self.i_d_nn.layers:
-                            for W in layer.weights:
-                                tf.summary.histogram(W.name + '_weights', W, step=step)
-                        for g in range(len(self.i_d_nn.trainable_variables)):
-                            tf.summary.histogram(self.i_d_nn.trainable_variables[g].name + '_grads', grad_controls[len(self.i_g_nn.trainable_variables) + g], step=step)
-
-                        ### i_a
-                        for layer in self.i_a_nn.layers:
-                            for W in layer.weights:
-                                tf.summary.histogram(W.name + '_weights', W, step=step)
-                        for g in range(len(self.i_a_nn.trainable_variables)):
-                            tf.summary.histogram(self.i_a_nn.trainable_variables[g].name + '_grads', grad_controls[len(self.i_a_nn.trainable_variables) + g], step=step)
+                             
  
-                
                 elapsed_time = time.time() - start_time
 
                 ## Appending to training history
@@ -763,7 +742,7 @@ class model:
         
 
                 ## Save training history
-                header = 'step,loss_value_function,loss_FOC_g,loss_FOC_a,loss_FOC_d,loss_FOC_S_g,loss_FOC_S_a,elapsed_time'
+                header = 'step,loss_value_function,loss_FOC_g,loss_FOC_a,loss_FOC_d,loss_FOC_AI_Production,loss_FOC_labor,elapsed_time'
 
                 np.savetxt(self.params["export_folder"] + '/training_history.csv',
                         training_history,
@@ -784,18 +763,15 @@ class model:
         self.i_g_nn.set_weights(best_i_g_nn.get_weights())
         self.i_a_nn.set_weights(best_i_a_nn.get_weights())
         self.i_d_nn.set_weights(best_i_d_nn.get_weights())
-        self.s_a_nn.set_weights(best_s_a_nn.get_weights())
-        self.s_g_nn.set_weights(best_s_g_nn.get_weights())
-
-
+        self.L_nn.set_weights(best_L_nn.get_weights())
+        
         ## Export last check point
         self.v_nn.save_weights( self.params["export_folder"] + '/v_nn_checkpoint')
         self.i_g_nn.save_weights( self.params["export_folder"] + '/i_g_nn_checkpoint')
         self.i_a_nn.save_weights( self.params["export_folder"] + '/i_a_nn_checkpoint')
         self.i_d_nn.save_weights( self.params["export_folder"] + '/i_d_nn_checkpoint' )
-        self.s_a_nn.save_weights( self.params["export_folder"] + '/s_a_nn_checkpoint')
-        self.s_g_nn.save_weights( self.params["export_folder"] + '/s_g_nn_checkpoint' )
-
+        self.L_nn.save_weights( self.params["export_folder"] + '/L_nn_checkpoint' )
+ 
  
         ## Save training history
         header = 'step,loss_value_function,loss_FOC_g,loss_FOC_a,loss_FOC_d,loss_FOC_S_g,loss_FOC_S_a,elapsed_time'
@@ -813,8 +789,9 @@ class model:
         loss_FOC_g                             = [history_record[2] for history_record in training_history]
         loss_FOC_a                             = [history_record[3] for history_record in training_history]
         loss_FOC_d                             = [history_record[4] for history_record in training_history]
-        loss_FOC_S_g                           = [history_record[5] for history_record in training_history]
-        loss_FOC_S_a                           = [history_record[6] for history_record in training_history]
+        loss_FOC_AI_Production                 = [history_record[5] for history_record in training_history]
+        loss_FOC_labor                         = [history_record[6] for history_record in training_history]
+
   
         plt.figure()
         plt.title("loss_value_function")
@@ -849,9 +826,113 @@ class model:
         plt.close()
 
         plt.figure()
+        plt.title("loss_FOC_AI_Production")
+        plt.plot(loss_FOC_AI_Production)
+        plt.yscale('log')
+        plt.xscale('log')
+        plt.savefig( self.params["export_folder"] + "/loss_FOC_AI_Production.png")
+        plt.close()
+
+        plt.figure()
+        plt.title("loss_FOC_labor")
+        plt.plot(loss_FOC_labor)
+        plt.yscale('log')
+        plt.xscale('log')
+        plt.savefig( self.params["export_folder"] + "/loss_FOC_labor.png")
+        plt.close()
+ 
+ 
+ 
+        ###########################################
+        ########     Solve sector prices 
+        ###############################################3
+        training_history_prices = []
+        # begin sgd iteration for HJB equation
+        for step in range(self.params["num_iterations"]):
+            if step % self.params["logging_frequency"] == 0:
+                ## Sample test data
+                logK_g, logK_a , logD= self.sample()
+                ## Compute test loss
+                test_losses = self.objective_fn_prices(logK_g, logK_a , logD,  False)  #compute_control, training 
+
+                ## Store best neural networks
+                if (test_losses[0] < min_loss):
+                    min_loss = test_losses[0]
+ 
+                    best_s_g_nn.set_weights(self.s_g_nn.get_weights())
+                    best_s_a_nn.set_weights(self.s_a_nn.get_weights())
+ 
+
+                ## Generate checkpoints for tensorboard
+                
+                if self.params['tensorboard']:
+                    grad_v_nn,loss_v_train = self.grad_prices(logK_g, logK_a ,  logD,   True)
+
+                    with self.test_writer.as_default():
+                        ## Export learning rates
+                        for optimizer_idx in range(len(self.params['optimizers'])):
+                            if "sgd" in self.params['learning_rate_schedule_type']:
+                                tf.summary.scalar('learning_rate_' + str(optimizer_idx), self.params["optimizers"][optimizer_idx]._decayed_lr(tf.float32), step=step)
+                            elif "piecewiseconstant" in self.params['learning_rate_schedule_type']:
+                                optimizer = self.params["optimizers"][optimizer_idx]
+                                current_lr = optimizer.learning_rate(step) if isinstance(optimizer.learning_rate, tf.keras.optimizers.schedules.LearningRateSchedule) else optimizer.lr
+                                tf.summary.scalar(f'learning_rate_{optimizer_idx}', current_lr, step=step)
+                            else:
+                                tf.summary.scalar('learning_rate_' + str(optimizer_idx), self.params["optimizers"][optimizer_idx].lr, step=step)
+
+                        
+                        tf.summary.scalar('loss_FOC_S_g', test_losses[0], step=step)
+                        tf.summary.scalar('loss_FOC_S_a', test_losses[1], step=step)
+ 
+ 
+                elapsed_time = time.time() - start_time
+
+                ## Appending to training history
+                entry = [step] + list(test_losses) + [ elapsed_time]
+                training_history_prices.append(entry)
+
+                ## Save training history
+                header = 'step,loss_FOC_S_g,loss_FOC_S_a,elapsed_time'
+
+                np.savetxt(self.params["export_folder"] + '/training_history_prices.csv',
+                        training_history_prices,
+                        fmt=['%d'] + ['%.5e'] * len(test_losses) + ['%d'],
+                        delimiter=",",
+                        header=header,
+                        comments='')
+
+
+        ## Use best neural networks 
+         
+        self.s_a_nn.set_weights(best_s_a_nn.get_weights())
+        self.s_g_nn.set_weights(best_s_g_nn.get_weights())
+
+
+        ## Export last check point
+        self.s_a_nn.save_weights( self.params["export_folder"] + '/s_a_nn_checkpoint')
+        self.s_g_nn.save_weights( self.params["export_folder"] + '/s_g_nn_checkpoint' )
+
+ 
+ 
+        ## Save training history
+        header = 'step,loss_FOC_S_g,loss_FOC_S_a,elapsed_time'
+
+        np.savetxt(self.params["export_folder"] + '/training_history_prices.csv',
+                training_history_prices,
+                fmt=['%d'] + ['%.5e'] * len(test_losses) + ['%d'],
+                delimiter=",",
+                header=header,
+                comments='')
+        
+        ## Plot losses
+  
+        loss_FOC_S_g                             = [history_record[1] for history_record in training_history_prices]
+        loss_FOC_S_a                             = [history_record[2] for history_record in training_history_prices] 
+
+
+        plt.figure()
         plt.title("loss_FOC_S_g")
         plt.plot(loss_FOC_S_g)
-        plt.yscale('log')
         plt.xscale('log')
         plt.savefig( self.params["export_folder"] + "/loss_FOC_S_g.png")
         plt.close()
@@ -863,8 +944,7 @@ class model:
         plt.xscale('log')
         plt.savefig( self.params["export_folder"] + "/loss_FOC_S_a.png")
         plt.close()
- 
-        
+
         return np.array(training_history)
 
     def export_parameters(self):

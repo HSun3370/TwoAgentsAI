@@ -1,0 +1,2 @@
+model_checkpoint_path: "s_g_nn_checkpoint"
+all_model_checkpoint_paths: "s_g_nn_checkpoint"

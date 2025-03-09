@@ -1,0 +1,6 @@
+num_hiddens: [32, 32, 32, 32]
+use_bias: True
+activation: relu
+dim: 1
+nn_name: s_g_nn
+final_activation: softplus
