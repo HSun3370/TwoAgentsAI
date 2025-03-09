@@ -140,6 +140,10 @@ class model:
         self.params["state_intervals"]["logD"]        =  tf.reshape(tf.linspace(self.params['logD_min'], self.params['logD_max'], self.params['batch_size'] + 1), (self.params['batch_size'] + 1,1))
         self.params["state_intervals"]["logD_interval_size"] =  self.params["state_intervals"]["logD"][1] -  self.params["state_intervals"]["logD"][0]
 
+        ## Add economic scalers for better training
+        consumption_guess =   np.exp(self.params["logK_a_max"]+self.params["logK_g_max"])  / 2 * 0.1
+        self.flow_pv_norm                          =  tf.ones(shape = (self.params['batch_size'],1) )  * self.params['δ'] * np.log(consumption_guess)
+        self.marginal_utility_of_consumption_norm  =  tf.ones(shape = (self.params['batch_size'],1) )  * self.params['δ'] / consumption_guess
 
 
         ## Create objects to generate checkpoints for tensorboard
@@ -185,7 +189,6 @@ class model:
         ψ = self.params["ψ"]  
 
 
-
         μ_a = self.params["μ_a"]
         κ_a = self.params["κ_a"]
         σ_a = self.params["σ_a"]
@@ -220,8 +223,7 @@ class model:
         N  = tf.reshape( L[:, 2:3], [self.params['batch_size'], 1]) 
          
         
-        S_g            = self.s_g_nn(state)
-        S_a            = self.s_a_nn(state)
+ 
         
 
         ## Calculate some variables for proceeding calculation. 
@@ -237,34 +239,18 @@ class model:
         ## FOC w.r.t logK_a
         dv_dlogK_a                 = tf.reshape(tf.gradients(v, logK_a, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
         dv_ddlogK_a                = tf.reshape(tf.gradients(dv_dlogK_a, logK_a, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
-        
-        dS_g_dlogK_a                 = tf.reshape(tf.gradients(S_g, logK_a, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
-        dS_g_ddlogK_a                = tf.reshape(tf.gradients(dS_g_dlogK_a, logK_a, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
-        
-        dS_a_dlogK_a                 = tf.reshape(tf.gradients(S_g, logK_a, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
-        dS_a_ddlogK_a                = tf.reshape(tf.gradients(dS_a_dlogK_a, logK_a, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
-        
+ 
          
         ## FOC w.r.t logK_g
         dv_dlogK_g                 = tf.reshape(tf.gradients(v, logK_g, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
         dv_ddlogK_g                = tf.reshape(tf.gradients(dv_dlogK_g, logK_g, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
         
-        dS_g_dlogK_g                 = tf.reshape(tf.gradients(S_g, logK_g, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
-        dS_g_ddlogK_g                = tf.reshape(tf.gradients(dS_g_dlogK_g, logK_g, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])    
-        
-        dS_a_dlogK_g                 = tf.reshape(tf.gradients(S_a, logK_g, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
-        dS_a_ddlogK_g                = tf.reshape(tf.gradients(dS_a_dlogK_g, logK_g, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])    
-        
+ 
         
         ## FOC w.r.t logD
         dv_dlogD                 = tf.reshape(tf.gradients(v, logD, unconnected_gradients='zero')[0], [self.params["batch_size"], 1])
         dv_ddlogD                 = tf.reshape(tf.gradients(dv_dlogD, logD, unconnected_gradients='zero')[0], [self.params["batch_size"], 1])
  
-        dS_g_dlogD                 = tf.reshape(tf.gradients(S_g, logD, unconnected_gradients='zero')[0], [self.params["batch_size"], 1])
-        dS_g_ddlogD                 = tf.reshape(tf.gradients(dS_g_dlogD, logD, unconnected_gradients='zero')[0], [self.params["batch_size"], 1])
- 
-        dS_a_dlogD                 = tf.reshape(tf.gradients(S_a, logD, unconnected_gradients='zero')[0], [self.params["batch_size"], 1])
-        dS_a_ddlogD                 = tf.reshape(tf.gradients(dS_a_dlogD, logD, unconnected_gradients='zero')[0], [self.params["batch_size"], 1])
  
  
  
@@ -326,18 +312,7 @@ class model:
                 +v_k_a_term * dv_dlogK_a + v_kk_a_term * dv_ddlogK_a \
                 + v_logD_term*dv_dlogD + v_logDlogD_term*dv_ddlogD
  
-  
-
-        rhs_S_g =  Π_g  -rf * S_g - λ_a* σ_a * dS_g_dlogK_a - λ_g* σ_g * dS_g_dlogK_g   -λ_D*σ_D* dS_g_dlogD   \
-                + v_k_g_term * dS_g_dlogK_g + v_kk_g_term * dS_g_ddlogK_g  \
-                +v_k_a_term * dS_g_dlogK_a + v_kk_a_term * dS_g_ddlogK_a \
-                + v_logD_term*dS_g_dlogD + v_logDlogD_term*dS_g_ddlogD
-        
    
-        rhs_S_a =  Π_a -rf *S_a  - λ_a* σ_a * dS_a_dlogK_a - λ_g* σ_g * dS_a_dlogK_g   -λ_D*σ_D* dS_a_dlogD   \
-                + v_k_g_term * dS_a_dlogK_g + v_kk_g_term * dS_a_ddlogK_g  \
-                +v_k_a_term * dS_a_dlogK_a + v_kk_a_term * dS_a_ddlogK_a \
-                + v_logD_term*dS_a_dlogD + v_logDlogD_term*dS_a_ddlogD
         ###################################################
         ######### FOCs w.r.t controls  
         ###################################################
@@ -349,20 +324,184 @@ class model:
         FOC_AI_Production = (1-α)*p*X/L_a -w
         FOC_labor = N - ψ * inside_log/w
         
-        return  rhs,FOC_g,FOC_a,FOC_D ,FOC_AI_Production,FOC_labor,  C, rhs_S_g, rhs_S_a
+        return  rhs,FOC_g,FOC_a,FOC_D ,FOC_AI_Production,FOC_labor,  C
+
+
+
 
     @tf.function
-    def objective_fn(self, logK_g, logK_a , logZ,logD,L_g, L_a, w, p,  compute_control, training):
+    def pde_Prices(self, logK_g, logK_a, logD):
+        '''
+        This is the PDE of the firm value dynamics
+        '''
+ 
+        δ = self.params["δ"]
+        ρ = self.params["ρ"]
+        α = self.params["α"]
+        θ = self.params["θ"]
+        γ = self.params["γ"]
+        ι = self.params["ι"]
+        β = self.params["β"]
+        ψ = self.params["ψ"]  
+
+
+        μ_a = self.params["μ_a"]
+        κ_a = self.params["κ_a"]
+        σ_a = self.params["σ_a"]
+
+        μ_g = self.params["μ_g"]
+        κ_g = self.params["κ_g"]
+        σ_g = self.params["σ_g"]
+        
+        ζ = self.params["ζ"]
+        ψ_0 = self.params["ψ_0"]
+        ψ_1 = self.params["ψ_1"]
+        σ_D = self.params["σ_D"]
+
+
+        A = self.params["A"]
+        Z = self.params["Z"] 
+ 
+         
+        state = tf.concat([logK_g, logK_a , logD], 1) 
+            
+ 
+        
+        ## Evalute neural networks 
+        v            = self.v_nn(state)
+        i_g          = self.i_g_nn(state)
+        i_a          = self.i_a_nn(state)
+        i_d          = self.i_d_nn(state)
+        
+        L = self.L_nn(state)  # shape: (batch_size, 3)
+        L_a =tf.reshape( L[:, 0:1], [self.params['batch_size'], 1]) 
+        L_g = tf.reshape( L[:, 1:2], [self.params['batch_size'], 1])
+        N  = tf.reshape( L[:, 2:3], [self.params['batch_size'], 1]) 
+        
+        
+        S_g            = self.s_g_nn(state)
+        S_a            = self.s_a_nn(state)
+        
+
+        ## Calculate some variables for proceeding calculation. 
+
+        K_a = tf.reshape(tf.exp(logK_a), [self.params['batch_size'], 1])
+        K_g = tf.reshape(tf.exp(logK_g), [self.params['batch_size'], 1])
+        D = tf.reshape(tf.exp(logD), [self.params['batch_size'], 1])
+
+        #########################
+        #### Calculate Partial Derivatives
+        #########################
+        
+        ## FOC w.r.t logK_a
+ 
+        dS_g_dlogK_a                 = tf.reshape(tf.gradients(S_g, logK_a, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
+        dS_g_ddlogK_a                = tf.reshape(tf.gradients(dS_g_dlogK_a, logK_a, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
+        
+        dS_a_dlogK_a                 = tf.reshape(tf.gradients(S_g, logK_a, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
+        dS_a_ddlogK_a                = tf.reshape(tf.gradients(dS_a_dlogK_a, logK_a, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
+        
+        
+        ## FOC w.r.t logK_g
+ 
+        dS_g_dlogK_g                 = tf.reshape(tf.gradients(S_g, logK_g, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
+        dS_g_ddlogK_g                = tf.reshape(tf.gradients(dS_g_dlogK_g, logK_g, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])    
+        
+        dS_a_dlogK_g                 = tf.reshape(tf.gradients(S_a, logK_g, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])
+        dS_a_ddlogK_g                = tf.reshape(tf.gradients(dS_a_dlogK_g, logK_g, unconnected_gradients='zero')[0], [self.params['batch_size'], 1])    
+        
+        
+        ## FOC w.r.t logD
+ 
+        dS_g_dlogD                 = tf.reshape(tf.gradients(S_g, logD, unconnected_gradients='zero')[0], [self.params["batch_size"], 1])
+        dS_g_ddlogD                 = tf.reshape(tf.gradients(dS_g_dlogD, logD, unconnected_gradients='zero')[0], [self.params["batch_size"], 1])
+ 
+        dS_a_dlogD                 = tf.reshape(tf.gradients(S_a, logD, unconnected_gradients='zero')[0], [self.params["batch_size"], 1])
+        dS_a_ddlogD                 = tf.reshape(tf.gradients(dS_a_dlogD, logD, unconnected_gradients='zero')[0], [self.params["batch_size"], 1])
+ 
+ 
+ 
+        #########################################################
+        ######## RHS without Jump terms #########################
+        #########################################################
+  
+        X = Z * ( K_a**α ) * ( L_a**(1-α) )
+        
+        L_AI =  (D**θ) * (X**(1-θ))
+        
+        L_composite = (ι* L_g**γ + (1-ι) *L_AI**γ)**(1/γ)
+        
+        
+        y = A * (K_g**β) * L_composite**(1-β)
+
+        p = (1-β) * (1-ι) * (1-θ) * y * (L_AI/ L_composite )**γ / X
+        w=  (1-β) *  ι  *  y * (L_g/ L_composite )**γ  / L_g
+
+        C = y - i_g*K_g - i_a * K_a - i_d * K_g
+        
+ 
+        inside_log   =   tf.reshape( tf.math.maximum( C , 0.0000001), [self.params["batch_size"], 1])
+        
+        ## Risk free rate
+        rf = δ + 0.5 * (y/inside_log) * β**2 *  σ_g**2 + 0.5 * (y/inside_log) * (1-β) * (1-ι) *( L_AI / L_composite )**γ *(
+         ι*(  L_g / L_composite  )**γ + (1-β) * (1-ι) )*(
+            ρ**2 * σ_D**2 + α**2 * γ**2 * (1-ρ)**2 * σ_a**2  )
+         
+
+        ## Profit of two sectors
+        Π_g = y - w * L_g -p*X
+        Π_a =  p*X -w * L_a
+        
+        ## Risk Price
+        λ_g = β * (y/inside_log) * σ_g 
+        λ_a = α* γ * (1-ρ)*(1-ι)*(1-β) * (y/inside_log) *( L_AI / L_composite   )**γ * σ_a
+        λ_D = ρ*(1-ι)*(1-β) * (y/inside_log) * ( L_AI / L_composite )**γ * σ_D
+        
+        # recursive utility
+        # flow   = δ /(1-ρ) *  (  ( inside_log * N**ψ /tf.exp(v) )**(1-ρ)   -1  )
+        
+
+        v_k_g_term       =  - μ_g + i_g - κ_g/2 * (i_g)**2 - σ_g**2/2
+        v_kk_g_term      =    0.5 * tf.pow(σ_g, 2)
+        
+        v_k_a_term       =  - μ_a + i_a - κ_a/2 * (i_a)**2 - σ_a**2/2
+        v_kk_a_term      =    0.5 * tf.pow(σ_a, 2)
+        
+            
+        v_logD_term     = -  ζ  +  ψ_0  * (K_g/D * i_d * y/D)**ψ_1 - 0.5 * tf.pow(σ_D, 2)
+        v_logDlogD_term =     0.5 * tf.pow(σ_D, 2)
+        
+
+        rhs_S_g =  Π_g  -rf * S_g - λ_a* σ_a * dS_g_dlogK_a - λ_g* σ_g * dS_g_dlogK_g   -λ_D*σ_D* dS_g_dlogD   \
+                + v_k_g_term * dS_g_dlogK_g + v_kk_g_term * dS_g_ddlogK_g  \
+                +v_k_a_term * dS_g_dlogK_a + v_kk_a_term * dS_g_ddlogK_a \
+                + v_logD_term*dS_g_dlogD + v_logDlogD_term*dS_g_ddlogD
+        
+   
+        rhs_S_a =  Π_a -rf *S_a  - λ_a* σ_a * dS_a_dlogK_a - λ_g* σ_g * dS_a_dlogK_g   -λ_D*σ_D* dS_a_dlogD   \
+                + v_k_g_term * dS_a_dlogK_g + v_kk_g_term * dS_a_ddlogK_g  \
+                +v_k_a_term * dS_a_dlogK_a + v_kk_a_term * dS_a_ddlogK_a \
+                + v_logD_term*dS_a_dlogD + v_logDlogD_term*dS_a_ddlogD
+
+        
+        return  rhs_S_g, rhs_S_a 
+
+
+
+
+ 
+    @tf.function
+    def objective_fn(self, logK_g, logK_a ,  logD,  compute_control, training):
  
         ## This is the objective function that stochastic gradient descend will try to minimize
         ## It depends on which NN it is training. Controls and value functions have different
         ## objectives.
 
-        rhs,FOC_g,FOC_a,FOC_D,  c , rhs_S_g, rhs_S_a    = self.pde_rhs(logK_g, logK_a , logZ,logD,L_g, L_a, w, p)
+        rhs,FOC_g,FOC_a,FOC_D ,FOC_AI_Production,FOC_labor,  C    = self.pde_rhs(logK_g, logK_a ,  logD )
 
-        epsilon = 10e-4
-        negative_consumption_boolean = tf.reshape( tf.cast( c < 0.000000001, tf.float32 ),  [self.params["batch_size"], 1])
-        loss_c  = - c  * negative_consumption_boolean + epsilon
+        epsilon = 10e-8
+        negative_consumption_boolean = tf.reshape( tf.cast( C < 0.000000001, tf.float32 ),  [self.params["batch_size"], 1])
+        loss_c  = - C * negative_consumption_boolean + epsilon
 
  
         if training:    
@@ -379,18 +518,20 @@ class model:
 
             if compute_control:
   
-                return -tf.reduce_mean( (rhs   ) ) + \
-                        tf.sqrt(tf.reduce_mean(tf.square(FOC_g )))  + \
-                        tf.sqrt(tf.reduce_mean(tf.square(FOC_a )))   + \
-                        tf.sqrt(tf.reduce_mean(tf.square(FOC_D )))   
+                return -tf.reduce_mean( (rhs/ self.flow_pv_norm   ) ) + \
+                        tf.sqrt(tf.reduce_mean(tf.square(FOC_g/ self.marginal_utility_of_consumption_norm )))  + \
+                        tf.sqrt(tf.reduce_mean(tf.square(FOC_a/ self.marginal_utility_of_consumption_norm )))   + \
+                        tf.sqrt(tf.reduce_mean(tf.square(FOC_D/ self.marginal_utility_of_consumption_norm )))   + \
+                        tf.sqrt(tf.reduce_mean(tf.square(FOC_AI_Production/ self.marginal_utility_of_consumption_norm ))) + \
+                        tf.sqrt(tf.reduce_mean(tf.square(FOC_labor/ self.marginal_utility_of_consumption_norm )))  
                         
             else:
-                loss = tf.sqrt(tf.reduce_mean(tf.square( (rhs ) ))) + \
-                        tf.sqrt(tf.reduce_mean(tf.square(FOC_g )))  + \
-                        tf.sqrt(tf.reduce_mean(tf.square(FOC_a )))   + \
-                        tf.sqrt(tf.reduce_mean(tf.square(FOC_D )))   + \
-                        tf.sqrt(tf.reduce_mean(tf.square(rhs_S_g )))   + \
-                      tf.sqrt(tf.reduce_mean(tf.square(rhs_S_a )))    
+                loss = tf.sqrt(tf.reduce_mean(tf.square( (rhs / self.flow_pv_norm ) ))) + \
+                        tf.sqrt(tf.reduce_mean(tf.square(FOC_g/ self.marginal_utility_of_consumption_norm )))  + \
+                        tf.sqrt(tf.reduce_mean(tf.square(FOC_a/ self.marginal_utility_of_consumption_norm )))   + \
+                        tf.sqrt(tf.reduce_mean(tf.square(FOC_D/ self.marginal_utility_of_consumption_norm )))   + \
+                        tf.sqrt(tf.reduce_mean(tf.square(FOC_AI_Production/ self.marginal_utility_of_consumption_norm ))) + \
+                        tf.sqrt(tf.reduce_mean(tf.square(FOC_labor/ self.marginal_utility_of_consumption_norm )))  
                 return loss  
 
         else:
@@ -398,20 +539,29 @@ class model:
                         tf.sqrt(tf.reduce_mean(tf.square(FOC_g )))  , \
                         tf.sqrt(tf.reduce_mean(tf.square(FOC_a )))  , \
                         tf.sqrt(tf.reduce_mean(tf.square(FOC_D )))    ,\
-                        tf.sqrt(tf.reduce_mean(tf.square(rhs_S_g ))) ,\
-                        tf.sqrt(tf.reduce_mean(tf.square(rhs_S_a )))    
+                        tf.sqrt(tf.reduce_mean(tf.square(FOC_AI_Production ))) ,\
+                        tf.sqrt(tf.reduce_mean(tf.square(FOC_labor )))    
 
+    @tf.function
+    def objective_fn_prices(self, logK_g, logK_a ,  logD,   training):
+        ## The Losses of sector valuation PDE
+        rhs_S_g, rhs_S_a    = self.pde_Prices(logK_g, logK_a ,  logD )
+        if training:    
+            ## Take care of nonsensical controls first
+            return tf.sqrt(tf.reduce_mean(tf.square(  rhs_S_g   ))) + tf.sqrt(tf.reduce_mean(tf.square( rhs_S_a   )))
+        else:
+            return tf.sqrt(tf.reduce_mean(tf.square(  rhs_S_g   ))) ,tf.sqrt(tf.reduce_mean(tf.square( rhs_S_a   )))  
+
+                                                         
                              
                              
-                             
-    def grad(self, logK_g, logK_a , logZ,logD,L_g, L_a, w, p,  compute_control , training ):
-        
+    def grad(self, logK_g, logK_a ,  logD,   compute_control , training ):
         
         if compute_control:
             with tf.GradientTape(persistent=True) as tape:
-                objective  = self.objective_fn(logK_g, logK_a , logZ,logD,L_g, L_a, w, p,  compute_control, training)
+                objective  = self.objective_fn(logK_g, logK_a ,  logD,  compute_control, training)
 
-            trainable_variables = self.i_g_nn.trainable_variables + self.i_d_nn.trainable_variables + self.i_a_nn.trainable_variables  + self.s_g_nn.trainable_variables+self.s_a_nn.trainable_variables
+            trainable_variables = self.i_g_nn.trainable_variables + self.i_d_nn.trainable_variables + self.i_a_nn.trainable_variables  + self.L_nn.trainable_variables 
 
             grad = tape.gradient(objective, trainable_variables)
 
@@ -420,28 +570,54 @@ class model:
             return grad, objective 
         else:
             with tf.GradientTape(persistent=True) as tape:
-                objective  = self.objective_fn(logK_g, logK_a , logZ,logD,L_g, L_a, w, p,  compute_control, training)
+                objective  = self.objective_fn(logK_g, logK_a ,  logD,   compute_control, training)
             
             grad = tape.gradient(objective, self.v_nn.trainable_variables )
             del tape
 
             return grad , objective 
 
+
+    def grad_prices(self, logK_g, logK_a ,  logD,    training ):
+    
+        with tf.GradientTape(persistent=True) as tape:
+            objective  = self.objective_fn_prices(logK_g, logK_a ,  logD,  training)
+
+        trainable_variables = self.s_g_nn.trainable_variables + self.s_d_nn.trainable_variables 
+        grad = tape.gradient(objective, trainable_variables)
+
+        del tape
+
+        return grad, objective 
+ 
+
+
+
+
+
     @tf.function
     def train_step(self):
-        logK_g, logK_a , logZ,logD,L_g, L_a, w, p = self.sample()
+        logK_g, logK_a ,  logD  = self.sample()
   
         ## First, train value function
-        
-        grad, loss_v_train = self.grad(logK_g, logK_a , logZ,logD,L_g, L_a, w, p,  False,  True) # compute_control=, training=
+        grad, loss_v_train = self.grad(logK_g, logK_a ,  logD,  False,  True) # compute_control=, training=
         self.params["optimizers"][0].apply_gradients(zip(grad, self.v_nn.trainable_variables))
 
         ## Second, train controls
-        grad, loss_c_train  = self.grad(logK_g, logK_a , logZ,logD,L_g, L_a, w, p,  True,  True)
-
-        self.params["optimizers"][1].apply_gradients(zip(grad, self.i_g_nn.trainable_variables + self.i_d_nn.trainable_variables + self.i_a_nn.trainable_variables + self.s_g_nn.trainable_variables+self.s_a_nn.trainable_variables))
-
+        grad, loss_c_train  = self.grad(logK_g, logK_a , logD,   True,  True)
+        self.params["optimizers"][1].apply_gradients(zip(grad, self.i_g_nn.trainable_variables + self.i_d_nn.trainable_variables + self.i_a_nn.trainable_variables + self.L_nn.trainable_variables))
+        
         return loss_v_train, loss_c_train 
+    
+    
+    @tf.function
+    def train_step_prices(self):
+        logK_g, logK_a ,  logD  = self.sample()
+        
+        grad, loss_c_train  = self.grad_prices(logK_g, logK_a , logD, True)
+        self.params["optimizers"][0].apply_gradients(zip(grad, self.s_g_nn.trainable_variables + self.s_d_nn.trainable_variables ))
+        return  loss_c_train    
+    
     
     
     def train(self):
@@ -452,7 +628,7 @@ class model:
         # Prepare to store best neural networks and initialize networks
         min_loss = float("inf")
         
-        n_inputs = 4
+        n_inputs = 3
 
         best_v_nn    = FeedForwardSubNet(self.params['v_nn_config'])
         best_v_nn.build( (self.params["batch_size"], n_inputs) ) 
@@ -470,6 +646,10 @@ class model:
         best_i_d_nn.build( (self.params["batch_size"], n_inputs) ) 
         self.i_d_nn.build( (self.params["batch_size"], n_inputs) )
         
+        best_L_nn  = FeedForwardSubNet(self.params['L_nn_config'])
+        best_L_nn.build( (self.params["batch_size"], n_inputs) ) 
+        self.L_nn.build( (self.params["batch_size"], n_inputs) )
+        
         best_s_g_nn    = FeedForwardSubNet(self.params['s_g_nn_config'])
         best_s_g_nn.build( (self.params["batch_size"], n_inputs) ) 
         self.s_g_nn.build( (self.params["batch_size"], n_inputs) )
@@ -483,7 +663,7 @@ class model:
         best_i_g_nn.set_weights(self.i_g_nn.get_weights())
         best_i_a_nn.set_weights(self.i_a_nn.get_weights())
         best_i_d_nn.set_weights(self.i_d_nn.get_weights())
-
+        best_L_nn.set_weights(self.L_nn.get_weights())
         best_s_g_nn.set_weights(self.s_g_nn.get_weights())
         best_s_a_nn.set_weights(self.s_a_nn.get_weights())
 
@@ -493,17 +673,17 @@ class model:
             self.i_g_nn.load_weights( self.params["pretrained_path"]  + '/i_g_nn_checkpoint')
             self.i_d_nn.load_weights( self.params["pretrained_path"]  + '/i_d_nn_checkpoint')
             self.i_a_nn.load_weights( self.params["pretrained_path"]  + '/i_a_nn_checkpoint')
+            self.L_nn.load_weights( self.params["pretrained_path"]  + '/L_nn_checkpoint')
 
 
 
-        # begin sgd iteration
         # begin sgd iteration
         for step in range(self.params["num_iterations"]):
             if step % self.params["logging_frequency"] == 0:
                 ## Sample test data
-                logK_g, logK_a , logZ,logD,L_g, L_a, w, p = self.sample()
+                logK_g, logK_a , logD= self.sample()
                 ## Compute test loss
-                test_losses = self.objective_fn(logK_g, logK_a , logZ,logD,L_g, L_a, w, p, False, False)  #compute_control, training 
+                test_losses = self.objective_fn(logK_g, logK_a , logD, False, False)  #compute_control, training 
 
                 ## Store best neural networks
                 if (test_losses[0] < min_loss):
@@ -513,14 +693,13 @@ class model:
                     best_i_g_nn.set_weights(self.i_g_nn.get_weights())
                     best_i_a_nn.set_weights(self.i_a_nn.get_weights())
                     best_i_d_nn.set_weights(self.i_d_nn.get_weights())
-                    best_s_a_nn.set_weights(self.s_a_nn.get_weights())
-                    best_s_g_nn.set_weights(self.s_g_nn.get_weights())
+                    best_L_nn.set_weights(self.L_nn.get_weights()) 
 
                 ## Generate checkpoints for tensorboard
                 
                 if self.params['tensorboard']:
-                    grad_v_nn,loss_v_train = self.grad(logK_g, logK_a , logZ,logD,L_g, L_a, w, p,     False,  True)
-                    grad_controls,loss_c_train = self.grad(logK_g, logK_a , logZ,logD,L_g, L_a, w, p,     True,  True)
+                    grad_v_nn,loss_v_train = self.grad(logK_g, logK_a ,  logD,     False,  True)
+                    grad_controls,loss_c_train = self.grad(logK_g, logK_a ,  logD,     True,  True)
 
                     with self.test_writer.as_default():
                         ## Export learning rates
