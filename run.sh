@@ -8,14 +8,15 @@ prefix="/project/lhansen/Capital_NN_variant/TwoAgentsDataFeedback/output"
 
 batch_size="128"
 num_iterations="200000" 
-# num_iterations="1000000" 
+num_iterations="1000000" 
+num_iterations="2000000" 
 # num_iterations="100000" 
 # num_iterations="300000" 
 logging_frequency="1000"
 learning_rates="40e-5,40e-5,40e-5,40e-5"  # Larger learning rate is much efficient
 # learning_rates="40e-3,40e-3,40e-3,40e-3" 
 # learning_rates="10e-3,10e-3,10e-3,10e-3"
-learning_rates="10e-4,10e-4,10e-4,10e-4"
+# learning_rates="10e-4,10e-4,10e-4,10e-4"
 # learning_rates="40e-7,40e-7,40e-7,40e-7"
 # learning_rates="40e-6,40e-6,40e-6,40e-6"
 hidden_layer_activations="swish,tanh,tanh,tanh"
@@ -34,7 +35,7 @@ learning_rate_schedule_type="piecewiseconstant"
  
 tensorboard='True'
 
-foldername="WithoutScalers_${learning_rate_schedule_type}_${learning_rates}_num_iterations${num_iterations}_hidden_layer_activations_${hidden_layer_activations}_output_layer_activations_${output_layer_activations}"
+foldername="AI_Without_Scalers_${learning_rate_schedule_type}_${learning_rates}_num_iterations${num_iterations}_hidden_layer_activations_${hidden_layer_activations}_output_layer_activations_${output_layer_activations}"
 pretrained_export_folder="None"
 
 

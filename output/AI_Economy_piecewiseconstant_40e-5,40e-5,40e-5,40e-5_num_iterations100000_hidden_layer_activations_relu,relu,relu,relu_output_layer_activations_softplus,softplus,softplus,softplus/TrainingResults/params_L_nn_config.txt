@@ -1,6 +1,0 @@
-num_hiddens: [32, 32, 32, 32]
-use_bias: True
-activation: relu
-dim: 3
-nn_name: Labor_nn
-final_activation: softmax

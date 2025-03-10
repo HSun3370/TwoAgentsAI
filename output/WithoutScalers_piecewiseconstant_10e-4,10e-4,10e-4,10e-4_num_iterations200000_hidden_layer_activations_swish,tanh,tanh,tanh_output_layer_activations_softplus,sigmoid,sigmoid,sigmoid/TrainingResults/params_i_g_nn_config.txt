@@ -1,6 +1,0 @@
-num_hiddens: [32, 32, 32, 32]
-use_bias: True
-activation: tanh
-dim: 1
-nn_name: i_g_nn
-final_activation: sigmoid
